@@ -594,7 +594,7 @@ function renderStaffAttendance(){
       const status = computeStatus(rec, a.closed, state.tick);
       rows += `
         <tr>
-          <td>${rec && rec.photo ? `<img class="thumb" data-user="${s.username}" src="${rec.photo}">` : `<div class="thumb-empty">👤</div>`}</td>
+          <td>${rec && rec.photo ? `<img class="thumb" data-user="${s.username}" src="${rec.photo}">` : `<div class="thumb-empty"></div>`}</td>
           <td>${s.name}</td>
           <td><span class="status-badge ${status.cls}">${status.label}${status.countdown?' ('+Math.ceil(status.countdown/60000)+'m)':''}</span></td>
           <td class="mono" style="font-size:12px">${rec && rec.choice==='izin_telat' ? fmtTime(rec.requestedAt) : '-'}</td>
