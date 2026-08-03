@@ -398,7 +398,7 @@ function renderLogin(){
         <div class="field"><label>Username</label><input id="li-user" type="text" autocomplete="username"></div>
         <div class="field"><label>Password</label><input id="li-pass" type="password" autocomplete="current-password"></div>
         <button class="btn-primary" id="li-btn">Masuk</button>
-        
+      </div>
     </div>
   `);
   box.querySelector('#li-btn').onclick = ()=>{
@@ -407,6 +407,7 @@ function renderLogin(){
   box.querySelector('#li-pass').addEventListener('keydown', e=>{ if(e.key==='Enter') box.querySelector('#li-btn').click(); });
   return box;
 }
+
 
 function renderTopbar(){
   const u = state.currentUser;
