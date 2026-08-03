@@ -196,7 +196,7 @@ async function openCamera(mode){
 
   // CEK JIKA KLIK HADIR TEPAT WAKTU TAPI SUDAH LEWAT JAM 07:00
   if(mode === 'ontime' && isPastCutoff(Date.now())){
-    alert('⚠️ Sudah lewat jam 07:00 Pagi!\n\nStatus kamu otomatis dialihkan ke "Izin Telat". Kamu punya waktu 10 menit untuk mengambil foto di kelas.');
+    alert('Sudah lewat jam 07:00 Pagi!\n\nStatus kamu otomatis dialihkan ke "Izin Telat". Kamu punya waktu 10 menit untuk mengambil foto di kelas.');
     chooseIzinTelat();
     return;
   }
@@ -489,8 +489,8 @@ function renderSiswaView(){
     const isLateNow = isPastCutoff(Date.now());
     const grid = el(`
       <div class="choice-grid">
-        <button class="choice-btn" id="c-ontime"><span class="ic">✅</span>Hadir Tepat Waktu</button>
-        <button class="choice-btn izin" id="c-izin"><span class="ic">⏰</span>Izin Telat</button>
+        <button class="choice-btn" id="c-ontime"><span class="ic"></span>Hadir Tepat Waktu</button>
+        <button class="choice-btn izin" id="c-izin"><span class="ic"></span>Izin Telat</button>
       </div>
     `);
     grid.querySelector('#c-ontime').onclick = ()=>openCamera('ontime');
@@ -525,8 +525,8 @@ function renderCameraBlock(){
       <div class="cam-box">
         <video id="cam-video" autoplay playsinline muted></video>
         <div class="cam-controls">
-          <button class="cam-flip" id="cb-flip">🔄 Ganti Kamera</button>
-          <button class="cam-shoot" id="cb-shoot">📸 Ambil Foto</button>
+          <button class="cam-flip" id="cb-flip"> Ganti Kamera</button>
+          <button class="cam-shoot" id="cb-shoot"> Ambil Foto</button>
         </div>
       </div>
     `));
