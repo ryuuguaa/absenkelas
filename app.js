@@ -57,8 +57,8 @@ const ROLE_LABEL = {
 };
 
 // Pengelompokan Akses Role
-const FULL_STAFF = ['admin', 'wali_kelas']; // Punya akses penuh (Rekap + Kelola Akun + Aksi)
-const VIEWER_ROLES = ['ketua_kelas', 'sekertaris']; // Hanya Lihat Rekap + Tetap Wajib Absen
+const FULL_STAFF = ['admin', 'wali_kelas']; // Tidak Perlu Absen | Bisa Rekap, Keringanan, Kelola Akun
+const VIEWER_ROLES = ['ketua_kelas', 'sekertaris']; // WAJIB Absen | Bisa Lihat Rekap Absensi
 
 const LATE_WINDOW_MS = 10*60*1000; // 10 Menit batas foto untuk izin telat
 
@@ -83,7 +83,6 @@ function fmtDateIndo(dateStr){
   return hari+', '+d+' '+bulan+' '+y;
 }
 
-// Fungsi Cek Apakah Timestamp Sudah Lewat Jam 07:00
 function isPastCutoff(ts){
   const d = new Date(ts);
   const cutoff = new Date(d.getFullYear(), d.getMonth(), d.getDate(), CUTOFF_HOUR, CUTOFF_MINUTE, 0);
@@ -96,10 +95,10 @@ let state = {
   users:[],
   currentUser:null,
   loginError:'',
-  view:'absen', // absen | rekap | kelola
+  view:'rekap', // 'absen' | 'rekap' | 'kelola'
   selectedDate:todayStr(),
-  attendanceCache:{}, // date -> {closed, records:{username:record}}
-  camMode:null, // 'ontime' | 'izin_telat'
+  attendanceCache:{},
+  camMode:null,
   camStream:null,
   camBusy:false,
   camFacing:'user',
@@ -141,7 +140,6 @@ async function saveAttendance(dateStr, data){
   await setData('attendance:'+dateStr, data);
 }
 
-// LOGIKA STATUS ABSEN
 function computeStatus(record, closed, now){
   if(!record) return closed ? {label:'Alfa', cls:'st-alfa'} : {label:'Belum Absen', cls:'st-belum'};
 
@@ -178,10 +176,18 @@ async function handleLogin(username, password){
   if(!u){ state.loginError = 'Username atau password salah.'; render(); return; }
   state.loginError = '';
   state.currentUser = u;
-  state.view = 'absen';
+  
+  // Tentukan Halaman Pertama Setelah Login Berdasarkan Role
+  if(FULL_STAFF.includes(u.role)){
+    state.view = 'rekap'; // Walas / Admin langsung ke Rekap Absensi
+  } else {
+    state.view = 'absen'; // Siswa / Sekertaris / Ketua Kelas langsung ke Absen Saya
+  }
+
   await loadAttendance(state.selectedDate);
   render();
 }
+
 function handleLogout(){
   stopCamera();
   state.currentUser = null;
@@ -309,7 +315,7 @@ async function chooseIzinTelat(){
   openCamera('izin_telat');
 }
 
-/* ============ FULL STAFF ACTIONS (ADMIN & WALI KELAS) ============ */
+/* ============ WALI KELAS & ADMIN ACTIONS ============ */
 async function toggleCloseDay(){
   const dateStr = state.selectedDate;
   let a = state.attendanceCache[dateStr] || await loadAttendance(dateStr);
@@ -370,17 +376,16 @@ function render(){
   const wrap = document.createElement('div'); wrap.className='wrap';
   const role = state.currentUser.role;
 
-  // Render berdasarkan Role dan Tampilan
   if(role === 'siswa'){
     wrap.appendChild(renderSiswaView());
   } else {
     wrap.appendChild(renderNavigationTabs());
     if(state.view === 'absen'){
-      wrap.appendChild(renderSiswaView()); // Form Absen Diri Sendiri
+      wrap.appendChild(renderSiswaView()); // Form Foto Absen Diri Sendiri
     } else if(state.view === 'rekap'){
-      wrap.appendChild(renderStaffAttendance()); // Rekap Kelas
+      wrap.appendChild(renderStaffAttendance()); // Tabel Rekap Absensi
     } else if(state.view === 'kelola'){
-      wrap.appendChild(renderKelolaAkun()); // Manajemen User
+      wrap.appendChild(renderKelolaAkun()); // Kelola Akun
     }
   }
 
@@ -440,7 +445,7 @@ function renderTopbar(){
   return bar;
 }
 
-// TAB NAVIGASI UNTUK PENGGUNA SELAIN SISWA
+// TAB NAVIGASI
 function renderNavigationTabs(){
   const role = state.currentUser.role;
   const isFullStaff = FULL_STAFF.includes(role);
@@ -449,10 +454,12 @@ function renderNavigationTabs(){
   let tabsHtml = `<div class="tabs">`;
   
   if(isViewer){
+    // Sekertaris & Ketua Kelas
     tabsHtml += `<button class="tab-btn ${state.view==='absen'?'active':''}" id="t-absen">Absen Saya</button>`;
     tabsHtml += `<button class="tab-btn ${state.view==='rekap'?'active':''}" id="t-rekap">Rekap Absensi</button>`;
   } else if(isFullStaff){
-    tabsHtml += `<button class="tab-btn ${state.view==='rekap' || state.view==='absen' ?'active':''}" id="t-rekap">Rekap Absensi</button>`;
+    // Wali Kelas & Admin
+    tabsHtml += `<button class="tab-btn ${state.view==='rekap'?'active':''}" id="t-rekap">Rekap Absensi</button>`;
     tabsHtml += `<button class="tab-btn ${state.view==='kelola'?'active':''}" id="t-kelola">Kelola Akun</button>`;
   }
   
@@ -585,10 +592,10 @@ function renderStaffAttendance(){
     return c;
   }
   
-  // Siapa saja yang ditampilkan di daftar rekap (Siswa, Ketua Kelas, Sekertaris)
+  // Siapa yang wajib absen dan tampil di tabel: Siswa, Ketua Kelas, dan Sekertaris
   const filterableUsers = state.users.filter(u => u.role === 'siswa' || VIEWER_ROLES.includes(u.role));
   
-  // Cek apakah user memiliki hak eksekusi (Tutup hari / Beri Keringanan)
+  // Hak akses pengelola (Wali Kelas & Admin)
   const isFullStaff = FULL_STAFF.includes(state.currentUser.role);
 
   const header = el(`
@@ -616,7 +623,7 @@ function renderStaffAttendance(){
 
   const tableCard = el(`<div class="card"></div>`);
   if(filterableUsers.length===0){
-    tableCard.appendChild(el(`<div class="empty-note">Belum ada daftar anggota kelas.</div>`));
+    tableCard.appendChild(el(`<div class="empty-note">Belum ada anggota kelas.</div>`));
   }else{
     let rows = '';
     filterableUsers.forEach(s=>{
