@@ -55,7 +55,11 @@ async function setData(key, value){
 const ROLE_LABEL = {
   admin:'Admin', wali_kelas:'Wali Kelas', sekertaris:'Sekertaris', ketua_kelas:'Ketua Kelas', siswa:'Siswa'
 };
-const STAFF_ROLES = ['admin','wali_kelas','sekertaris','ketua_kelas'];
+
+// Pengelompokan Akses Role
+const FULL_STAFF = ['admin', 'wali_kelas']; // Punya akses penuh (Rekap + Kelola Akun + Aksi)
+const VIEWER_ROLES = ['ketua_kelas', 'sekertaris']; // Hanya Lihat Rekap + Tetap Wajib Absen
+
 const LATE_WINDOW_MS = 10*60*1000; // 10 Menit batas foto untuk izin telat
 
 // BATAS JAM MASUK (07:00 Pagi)
@@ -92,7 +96,7 @@ let state = {
   users:[],
   currentUser:null,
   loginError:'',
-  view:'absen', // absen | kelola
+  view:'absen', // absen | rekap | kelola
   selectedDate:todayStr(),
   attendanceCache:{}, // date -> {closed, records:{username:record}}
   camMode:null, // 'ontime' | 'izin_telat'
@@ -137,22 +141,18 @@ async function saveAttendance(dateStr, data){
   await setData('attendance:'+dateStr, data);
 }
 
-// PERBAIKAN LOGIKA STATUS (DETEKSI JAM 07:00)
+// LOGIKA STATUS ABSEN
 function computeStatus(record, closed, now){
   if(!record) return closed ? {label:'Alfa', cls:'st-alfa'} : {label:'Belum Absen', cls:'st-belum'};
-  
-  // Jika sudah mengambil foto
+
   if(record.photo){
-    // Jika awalnya memilih Hadir Tepat Waktu
     if(record.choice === 'ontime'){
-      // Cek apakah foto diambil SETELAH jam 07:00
       if(isPastCutoff(record.photoAt)){
         return record.keringanan ? {label:'Hadir (Keringanan)', cls:'st-hadir'} : {label:'Alfa (Telat Foto > 07:00)', cls:'st-alfa'};
       }
       return {label:'Hadir', cls:'st-hadir'};
     }
-    
-    // Jika memilih Izin Telat
+
     if(record.choice === 'izin_telat'){
       const diff = record.photoAt - record.requestedAt;
       if(diff <= LATE_WINDOW_MS) return {label:'Hadir (Izin Telat)', cls:'st-hadir'};
@@ -161,7 +161,6 @@ function computeStatus(record, closed, now){
     }
   }
 
-  // Jika sedang menunggu foto (Izin Telat)
   if(record.choice === 'izin_telat'){
     const remaining = LATE_WINDOW_MS - (now - record.requestedAt);
     if(remaining > 0) return {label:'Menunggu Foto', cls:'st-tunggu', countdown:remaining};
@@ -194,7 +193,6 @@ async function openCamera(mode){
   if(state.camBusy) return;
   state.camError = null;
 
-  // CEK JIKA KLIK HADIR TEPAT WAKTU TAPI SUDAH LEWAT JAM 07:00
   if(mode === 'ontime' && isPastCutoff(Date.now())){
     alert('Sudah lewat jam 07:00 Pagi!\n\nStatus kamu otomatis dialihkan ke "Izin Telat". Kamu punya waktu 10 menit untuk mengambil foto di kelas.');
     chooseIzinTelat();
@@ -245,7 +243,7 @@ function shootPhoto(){
   const video = document.getElementById('cam-video');
   if(!video) return;
   const canvas = document.createElement('canvas');
-  
+
   const maxW = 480;
   const scale = maxW / video.videoWidth;
   canvas.width = maxW;
@@ -311,7 +309,7 @@ async function chooseIzinTelat(){
   openCamera('izin_telat');
 }
 
-/* ============ STAFF ACTIONS ============ */
+/* ============ FULL STAFF ACTIONS (ADMIN & WALI KELAS) ============ */
 async function toggleCloseDay(){
   const dateStr = state.selectedDate;
   let a = state.attendanceCache[dateStr] || await loadAttendance(dateStr);
@@ -368,14 +366,24 @@ function render(){
   if(!state.currentUser){ app.innerHTML=''; app.appendChild(renderLogin()); return; }
   app.innerHTML='';
   app.appendChild(renderTopbar());
+  
   const wrap = document.createElement('div'); wrap.className='wrap';
-  if(state.currentUser.role === 'siswa'){
+  const role = state.currentUser.role;
+
+  // Render berdasarkan Role dan Tampilan
+  if(role === 'siswa'){
     wrap.appendChild(renderSiswaView());
-  }else{
-    wrap.appendChild(renderStaffTabs());
-    if(state.view==='absen') wrap.appendChild(renderStaffAttendance());
-    else wrap.appendChild(renderKelolaAkun());
+  } else {
+    wrap.appendChild(renderNavigationTabs());
+    if(state.view === 'absen'){
+      wrap.appendChild(renderSiswaView()); // Form Absen Diri Sendiri
+    } else if(state.view === 'rekap'){
+      wrap.appendChild(renderStaffAttendance()); // Rekap Kelas
+    } else if(state.view === 'kelola'){
+      wrap.appendChild(renderKelolaAkun()); // Manajemen User
+    }
   }
+
   app.appendChild(wrap);
   if(state.modalPhoto) app.appendChild(renderPhotoModal());
   if(state.camMode && !state.capturedPhoto && state.camStream){
@@ -408,7 +416,6 @@ function renderLogin(){
   return box;
 }
 
-
 function renderTopbar(){
   const u = state.currentUser;
   const bar = el(`
@@ -431,6 +438,38 @@ function renderTopbar(){
   `);
   bar.querySelector('#btn-logout').onclick = handleLogout;
   return bar;
+}
+
+// TAB NAVIGASI UNTUK PENGGUNA SELAIN SISWA
+function renderNavigationTabs(){
+  const role = state.currentUser.role;
+  const isFullStaff = FULL_STAFF.includes(role);
+  const isViewer = VIEWER_ROLES.includes(role);
+
+  let tabsHtml = `<div class="tabs">`;
+  
+  if(isViewer){
+    tabsHtml += `<button class="tab-btn ${state.view==='absen'?'active':''}" id="t-absen">Absen Saya</button>`;
+    tabsHtml += `<button class="tab-btn ${state.view==='rekap'?'active':''}" id="t-rekap">Rekap Absensi</button>`;
+  } else if(isFullStaff){
+    tabsHtml += `<button class="tab-btn ${state.view==='rekap' || state.view==='absen' ?'active':''}" id="t-rekap">Rekap Absensi</button>`;
+    tabsHtml += `<button class="tab-btn ${state.view==='kelola'?'active':''}" id="t-kelola">Kelola Akun</button>`;
+  }
+  
+  tabsHtml += `</div>`;
+
+  const tabs = el(tabsHtml);
+
+  const tAbsen = tabs.querySelector('#t-absen');
+  if(tAbsen) tAbsen.onclick = ()=>{ state.view='absen'; render(); };
+
+  const tRekap = tabs.querySelector('#t-rekap');
+  if(tRekap) tRekap.onclick = ()=>{ state.view='rekap'; loadAttendance(state.selectedDate).then(render); };
+
+  const tKelola = tabs.querySelector('#t-kelola');
+  if(tKelola) tKelola.onclick = ()=>{ state.view='kelola'; render(); };
+
+  return tabs;
 }
 
 function renderSiswaView(){
@@ -536,19 +575,6 @@ function renderCameraBlock(){
   return box;
 }
 
-function renderStaffTabs(){
-  const tabs = el(`
-    <div class="tabs">
-      <button class="tab-btn ${state.view==='absen'?'active':''}" id="t-absen">Absensi</button>
-      ${state.currentUser.role==='admin' ? `<button class="tab-btn ${state.view==='kelola'?'active':''}" id="t-kelola">Kelola Akun</button>` : ''}
-    </div>
-  `);
-  tabs.querySelector('#t-absen').onclick = ()=>{ state.view='absen'; loadAttendance(state.selectedDate).then(render); };
-  const tk = tabs.querySelector('#t-kelola');
-  if(tk) tk.onclick = ()=>{ state.view='kelola'; render(); };
-  return tabs;
-}
-
 function renderStaffAttendance(){
   const c = el(`<div></div>`);
   const dateStr = state.selectedDate;
@@ -558,8 +584,12 @@ function renderStaffAttendance(){
     c.appendChild(el(`<div class="empty-note">Memuat data absensi...</div>`));
     return c;
   }
-  const students = state.users.filter(u=>u.role==='siswa');
-  const canManage = state.currentUser.role==='admin' || state.currentUser.role==='wali_kelas';
+  
+  // Siapa saja yang ditampilkan di daftar rekap (Siswa, Ketua Kelas, Sekertaris)
+  const filterableUsers = state.users.filter(u => u.role === 'siswa' || VIEWER_ROLES.includes(u.role));
+  
+  // Cek apakah user memiliki hak eksekusi (Tutup hari / Beri Keringanan)
+  const isFullStaff = FULL_STAFF.includes(state.currentUser.role);
 
   const header = el(`
     <div class="card">
@@ -570,10 +600,10 @@ function renderStaffAttendance(){
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <input type="date" class="date-input" id="date-pick" value="${dateStr}">
-          ${canManage ? `<button class="small-btn ${a.closed?'ghost':''}" id="btn-close">${a.closed?'Buka Kembali':'Tutup Absen Hari Ini'}</button>` : ''}
+          ${isFullStaff ? `<button class="small-btn ${a.closed?'ghost':''}" id="btn-close">${a.closed?'Buka Kembali':'Tutup Absen Hari Ini'}</button>` : ''}
         </div>
       </div>
-      ${a.closed ? `<div style="margin-top:10px;font-size:12px;color:var(--clay)">Absensi ditutup${a.closedBy?' oleh '+a.closedBy:''}. Siswa yang belum foto otomatis Alfa.</div>` : ''}
+      ${a.closed ? `<div style="margin-top:10px;font-size:12px;color:var(--clay)">Absensi ditutup${a.closedBy?' oleh '+a.closedBy:''}. Pengguna yang belum foto otomatis Alfa.</div>` : ''}
     </div>
   `);
   header.querySelector('#date-pick').onchange = (e)=>{
@@ -585,21 +615,31 @@ function renderStaffAttendance(){
   c.appendChild(header);
 
   const tableCard = el(`<div class="card"></div>`);
-  if(students.length===0){
-    tableCard.appendChild(el(`<div class="empty-note">Belum ada akun siswa. Tambahkan lewat menu Kelola Akun.</div>`));
+  if(filterableUsers.length===0){
+    tableCard.appendChild(el(`<div class="empty-note">Belum ada daftar anggota kelas.</div>`));
   }else{
     let rows = '';
-    students.forEach(s=>{
+    filterableUsers.forEach(s=>{
       const rec = a.records[s.username];
       const status = computeStatus(rec, a.closed, state.tick);
+      
+      let actionColumn = '-';
+      if(isFullStaff && status.label.startsWith('Alfa')){
+        actionColumn = rec && rec.keringanan 
+          ? `<button class="small-btn ghost" data-revoke="${s.username}">Batalkan Keringanan</button>` 
+          : `<button class="small-btn" data-keringanan="${s.username}">Beri Keringanan</button>`;
+      } else if(rec && rec.keringanan) {
+        actionColumn = `<span style="font-size:11px;color:var(--green)">Keringanan ✓</span>`;
+      }
+
       rows += `
         <tr>
           <td>${rec && rec.photo ? `<img class="thumb" data-user="${s.username}" src="${rec.photo}">` : `<div class="thumb-empty"></div>`}</td>
-          <td>${s.name}</td>
+          <td>${s.name} <br><span style="font-size:11px;color:var(--ink-soft)">(${ROLE_LABEL[s.role]})</span></td>
           <td><span class="status-badge ${status.cls}">${status.label}${status.countdown?' ('+Math.ceil(status.countdown/60000)+'m)':''}</span></td>
           <td class="mono" style="font-size:12px">${rec && rec.choice==='izin_telat' ? fmtTime(rec.requestedAt) : '-'}</td>
           <td class="mono" style="font-size:12px">${rec && rec.photoAt ? fmtTime(rec.photoAt) : '-'}</td>
-          <td>${canManage && status.label.startsWith('Alfa') ? (rec && rec.keringanan ? `<button class="small-btn ghost" data-revoke="${s.username}">Batalkan Keringanan</button>` : `<button class="small-btn" data-keringanan="${s.username}">Beri Keringanan</button>`) : (rec && rec.keringanan ? `<span style="font-size:11px;color:var(--green)">Keringanan ✓</span>` : '')}</td>
+          <td>${actionColumn}</td>
         </tr>
       `;
     });
